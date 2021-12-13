@@ -7,17 +7,23 @@
 
 import io
 import json
-import oci
-import csv
+import pandas
 import requests
-
+import base64
+import csv
+from io import StringIO
 from fdk import response
 
+import oci
+from vision_service_python_client.ai_service_vision_client import AIServiceVisionClient
+from vision_service_python_client.models.analyze_image_details import AnalyzeImageDetails
+from vision_service_python_client.models.image_object_detection_feature import ImageObjectDetectionFeature
+from vision_service_python_client.models.inline_image_details import InlineImageDetails
 
 def soda_insert(ordsbaseurl, schema, dbuser, dbpwd, document):
     auth=(dbuser, dbpwd)
     sodaurl = ordsbaseurl + schema + '/soda/latest/'
-    collectionurl = sodaurl + "regionsnumbers"
+    collectionurl = sodaurl + "foodcount"
     headers = {'Content-Type': 'application/json'}
     r = requests.post(collectionurl, auth=auth, headers=headers, data=json.dumps(document))
     r_json = {}
@@ -34,11 +40,34 @@ def load_data(signer, namespace, bucket_name, object_name, ordsbaseurl, schema, 
     try:
         print("INFO - About to read object {0} in bucket {1}...".format(object_name, bucket_name), flush=True)
         # we assume the file can fit in memory, otherwise we have to use the "range" argument and loop through the file
-        csvdata = client.get_object(namespace, bucket_name, object_name)
-        if csvdata.status == 200:
+        image = client.get_object(namespace, bucket_name, object_name)
+        load_json = do(signer,image)
+        insert_status = soda_insert(ordsbaseurl, schema, dbuser, dbpwd, row)
+            if "id" in insert_status["items"][0]:
+                print("INFO - Successfully inserted document ID " + insert_status["items"][0]["id"], flush=True)
+            else:
+                raise SystemExit("Error while inserting: " + insert_status)    
+        
+def vision(dip, txt):
+    encoded_string = base64.b64encode(requests.get(txt).content)
+    image_object_detection_feature = ImageObjectDetectionFeature()
+    image_object_detection_feature.max_results = 5
+    features = [image_object_detection_feature]
+    analyze_image_details = AnalyzeImageDetails()
+    inline_image_details = InlineImageDetails()
+    inline_image_details.data = encoded_string.decode('utf-8')
+    analyze_image_details.image = inline_image_details
+    analyze_image_details.features = features
+    le = dip.analyze_image(analyze_image_details=analyze_image_details)
+    if len(le.data.image_objects) > 0:
+      return json.loads(le.data.image_objects.__repr__())
+    return ""
+
+        
+        if image.status == 200:
             print("INFO - Object {0} is read".format(object_name), flush=True)
-            input_csv_text = str(csvdata.data.text)
-            reader = csv.DictReader(input_csv_text.split('\n'), delimiter=',')
+            input_image = str(image.data)
+            reader = image.DictReader(input_image.split('\n'), delimiter=',')
             for row in reader:
                 print("INFO - inserting:")
                 print("INFO - " + json.dumps(row), flush=True)
@@ -82,8 +111,8 @@ def handler(ctx, data: io.BytesIO=None):
     object_name = bucket_name = namespace = ordsbaseurl = schema = dbuser = dbpwd = ""
     try:
         cfg = ctx.Config()
-        input_bucket = cfg["input-bucket"]
-        processed_bucket = cfg["processed-bucket"]
+        input_bucket = cfg["pic-input-bucket"]
+        processed_bucket = cfg["pic-processed-bucket"]
         ordsbaseurl = cfg["ords-base-url"]
         schema = cfg["db-schema"]
         dbuser = cfg["db-user"]
@@ -112,3 +141,28 @@ def handler(ctx, data: io.BytesIO=None):
         response_data=json.dumps({"status": "Success"}),
         headers={"Content-Type": "application/json"}
     )
+
+
+def do(signer, data):
+    dip = AIServiceVisionClient(config={}, signer=signer)
+    body = json.loads(data.getvalue())
+    input_parameters = body.get("parameters")
+    col = input_parameters.get("column")
+    input_data = base64.b64decode(body.get("data")).decode()
+    df = pandas.read_json(StringIO(input_data), lines=True)
+    df['enr'] = df.apply(lambda row : vision(dip,row[col]), axis = 1)
+    #Explode the array of aspects into row per entity
+    dfe = df.explode('enr', True)
+    #Add a column for each property we want to return from image_objects struct
+    ret = pandas.concat([dfe,pandas.DataFrame((d for idx, d in dfe['enr'].iteritems()))], axis = 1)
+    #Drop array of aspects column
+    ret = ret.drop(['enr'],axis = 1)
+    #Drop the input text column we don't need to return that (there may be other columns there)
+    ret = ret.drop([col],axis = 1)
+    print(ret.columns)
+    for i in range(4):
+        ret['x' + str(i)] = ret.apply(lambda row: row['bounding_polygon']['normalized_vertices'][i]['x'], axis = 1)
+        ret['y' + str(i)] = ret.apply(lambda row: row['bounding_polygon']['normalized_vertices'][i]['y'], axis = 1)
+    ret = ret.drop(['bounding_polygon'],axis = 1)
+    res = ret.to_json(orient = 'records')
+    return res

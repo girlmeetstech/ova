@@ -12,13 +12,6 @@ from vision_service_python_client.models.analyze_image_details import AnalyzeIma
 from vision_service_python_client.models.image_object_detection_feature import ImageObjectDetectionFeature
 from vision_service_python_client.models.inline_image_details import InlineImageDetails
 
-def handler(ctx, data: io.BytesIO=None):
-    signer = oci.auth.signers.get_resource_principals_signer()
-    resp = do(signer,data)
-    return response.Response(
-        ctx, response_data=resp,
-        headers={"Content-Type": "application/json"}
-    )
 def vision(dip, txt):
     encoded_string = base64.b64encode(requests.get(txt).content)
     image_object_detection_feature = ImageObjectDetectionFeature()
@@ -57,3 +50,11 @@ def do(signer, data):
     ret = ret.drop(['bounding_polygon'],axis = 1)
     res = ret.to_json(orient = 'records')
     return res
+
+def handler(ctx, data: io.BytesIO=None):
+    signer = oci.auth.signers.get_resource_principals_signer()
+    resp = do(signer,data)
+    return response.Response(
+        ctx, response_data=resp,
+        headers={"Content-Type": "application/json"}
+    )

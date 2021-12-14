@@ -12,21 +12,6 @@ from vision_service_python_client.models.analyze_image_details import AnalyzeIma
 from vision_service_python_client.models.image_object_detection_feature import ImageObjectDetectionFeature
 from vision_service_python_client.models.inline_image_details import InlineImageDetails
 
-def vision(dip, txt):
-    encoded_string = base64.b64encode(requests.get(txt).content)
-    image_object_detection_feature = ImageObjectDetectionFeature()
-    image_object_detection_feature.max_results = 5
-    features = [image_object_detection_feature]
-    analyze_image_details = AnalyzeImageDetails()
-    inline_image_details = InlineImageDetails()
-    inline_image_details.data = encoded_string.decode('utf-8')
-    analyze_image_details.image = inline_image_details
-    analyze_image_details.features = features
-    le = dip.analyze_image(analyze_image_details=analyze_image_details)
-    if len(le.data.image_objects) > 0:
-      return json.loads(le.data.image_objects.__repr__())
-    return ""
-
 def do(signer, data):
     dip = AIServiceVisionClient(config={}, signer=signer)
     body = json.loads(data.getvalue())
@@ -50,6 +35,21 @@ def do(signer, data):
     ret = ret.drop(['bounding_polygon'],axis = 1)
     res = ret.to_json(orient = 'records')
     return res
+
+def vision(dip, txt):
+    encoded_string = base64.b64encode(requests.get(txt).content)
+    image_object_detection_feature = ImageObjectDetectionFeature()
+    image_object_detection_feature.max_results = 5
+    features = [image_object_detection_feature]
+    analyze_image_details = AnalyzeImageDetails()
+    inline_image_details = InlineImageDetails()
+    inline_image_details.data = encoded_string.decode('utf-8')
+    analyze_image_details.image = inline_image_details
+    analyze_image_details.features = features
+    le = dip.analyze_image(analyze_image_details=analyze_image_details)
+    if len(le.data.image_objects) > 0:
+      return json.loads(le.data.image_objects.__repr__())
+    return ""
 
 def handler(ctx, data: io.BytesIO=None):
     signer = oci.auth.signers.get_resource_principals_signer()

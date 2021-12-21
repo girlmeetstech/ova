@@ -9,11 +9,17 @@ from fdk import response
 import oci
 from vision_service_python_client.ai_service_vision_client import AIServiceVisionClient
 from vision_service_python_client.models.analyze_image_details import AnalyzeImageDetails
-from vision_service_python_client.models.image_object_detection_feature import ImageObjectDetectionFeature
+from vision_service_python_client.models.image_object_detection_feature.model_id = ocid1.aivisionmodel.oc1.iad.amaaaaaaxr7bp5iastyxkwtpf4kad42hgqawabkzdixfsqaw26ccxa22j2sq
+ import ImageObjectDetectionFeature
 from vision_service_python_client.models.inline_image_details import InlineImageDetails
 
 def do(signer, data):
     dip = AIServiceVisionClient(config={}, signer=signer)
+    try:
+        body = json.loads(data.getvalue())
+    except (Exception, ValueError) as ex:
+        print(str(ex))
+        pass
     body = json.loads(data.getvalue())
     input_parameters = body.get("parameters")
     col = input_parameters.get("column")
